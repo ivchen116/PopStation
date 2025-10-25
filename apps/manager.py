@@ -46,68 +46,6 @@ class PopApp:
         AppManager.instance().cancel_timer(self, timer_id)
 
 # ---------------------------
-# 定时器服务
-# ---------------------------
-class TimerService:
-    def __init__(self, tick_ms=10):
-        self.tick_ms = tick_ms
-        self.timers = {}  # (owner, timer_id) -> [period_ticks, remain, repeat]
-        self._task = None
-        self.quit = False
-
-    def set_timer(self, owner, timer_id, period_ms, repeat, callback):
-        if period_ms % self.tick_ms != 0:
-            raise ValueError("period_ms must be multiple of tick_ms")
-        key = (owner, timer_id)
-        self.timers[key] = [
-            period_ms // self.tick_ms,
-            period_ms // self.tick_ms,
-            repeat,
-            callback,
-        ]
-
-    def remove_timer(self, owner, timer_id):
-        key = (owner, timer_id)
-        if key in self.timers:
-            del self.timers[key]
-
-    async def run(self):
-        try:
-            while not self.quit:
-                await asyncio.sleep_ms(self.tick_ms)
-                for key in list(self.timers.keys()):
-                    entry = self.timers.get(key)
-                    if entry is None:
-                        continue
-                    entry[1] -= 1
-                    if entry[1] <= 0:
-                        period, remain, repeat, callback = entry
-                        if repeat:
-                            entry[1] = period
-                        else:
-                            self.timers.pop(key, None)
-                        try:
-                            callback()
-                        except Exception as e:
-                            print("[TimerService] callback error:", e)
-        finally:
-            self._task = None
-
-    def start(self):
-        if self._task is None:
-            self.quit = False
-            self._task = asyncio.create_task(self.run())
-
-    async def stop(self):
-        self.quit = True
-        if self._task:
-            try:
-                await self._task
-            finally:
-                self._task = None
-
-
-# ---------------------------
 # App 管理器（核心）
 # ---------------------------
 class AppManager:
@@ -125,7 +63,6 @@ class AppManager:
         self.remove_pending = []
         self.current_app = None
         self.queue = EventQueue()
-        self.timer_svr = TimerService()
         self.timers = {}
         self.heap = []
         self._running = False
@@ -167,9 +104,8 @@ class AppManager:
 
     # ---------- 定时器 ----------
     def set_timer(self, owner, timer_id, interval, repeat=False):
-        # self.timer_svr.set_timer(owner, timer_id, interval, repeat,
-        #     lambda: self.queue.put((AppEventType.EventTimer, owner, timer_id))
-        # )
+        if not isinstance(owner, PopApp):
+            raise ValueError("timer owner must be a PopApp instance")
         key = (owner, timer_id)
         expire_tick = time.ticks_add(time.ticks_ms(), interval)
         
@@ -177,14 +113,11 @@ class AppManager:
         self.timers[key] = (interval, repeat)
         # 添加到堆
         heapq.heappush(self.heap, (expire_tick, key))
-        print(f"[DEBUG] start owner: {owner}, timer_id: {timer_id}, interval: {interval}, repeat: {repeat}, expire_tick: {expire_tick}, heap: {self.heap}")
 
     def cancel_timer(self, owner, timer_id):
-        # self.timer_svr.remove_timer(owner, timer_id)
         key = (owner, timer_id)
         if key in self.timers:
             del self.timers[key]
-            print(f"[DEBUG] cancel owner: {owner}, timer_id: {timer_id}, timers: {self.timers}")
 
     def timer_expire_ms(self):
         if self.heap:
@@ -196,8 +129,6 @@ class AppManager:
         now = time.ticks_ms()
         while self.heap and time.ticks_diff(self.heap[0][0], now) <= 0:
             expire_tick, key = heapq.heappop(self.heap)
-            print(f"[DEBUG] timer_do_expires key: {key}, expire_tick: {expire_tick}, now: {now}, heap: {self.heap}")
-            # 检查任务是否还存在（可能被取消了）
             if key not in self.timers:
                 continue
             
@@ -205,13 +136,11 @@ class AppManager:
             interval, repeat = self.timers[key]
             
             try:
-                if hasattr(owner, 'on_timer'):
-                    owner.on_timer(timer_id)
+                owner.on_timer(timer_id)
             except Exception as e:
                 print(f"Timer error for {key}: {e}")
-                repeat = 0 # del if error
+                repeat = 0 # delete if error
             
-            # 处理重复任务
             if repeat != 0:  # -1 表示无限重复，>0 表示剩余次数
                 if repeat > 0:
                     repeat -= 1
@@ -221,7 +150,6 @@ class AppManager:
                 self.timers[key] = (interval, repeat)
                 heapq.heappush(self.heap, (new_expire, key))
             else:
-                # 一次性任务或重复次数用完，删除
                 del self.timers[key]
 
     # ---------- 事件 ----------
@@ -237,7 +165,6 @@ class AppManager:
     # ---------- 主循环 ----------
     async def run(self, root_app):
         self._running = True
-        self.timer_svr.start()
 
         self.app_stack = [root_app]
         root_app._entered = True
@@ -248,32 +175,30 @@ class AppManager:
 
         while self._running and self.app_stack:
             next_expire = self.timer_expire_ms()
-            print(f"[DEBUG] next_expire: {next_expire}")
             _evt_data = await self.queue.wait_for_ms(next_expire)
-            print(_evt_data)
             top_app = self.app_stack[-1]
             if _evt_data is not None:
                 evt_type, owner, evt_data = _evt_data
-                try:
-                    if evt_type == AppEventType.EventSys:
-                        if evt_data == EventSysID.Quit:
-                            break
+                # try:
+                if evt_type == AppEventType.EventSys:
+                    if evt_data == EventSysID.Quit:
+                        break
 
-                    elif evt_type == AppEventType.EventTimer:
-                        if self.is_active(owner):
-                            owner.on_timer(evt_data)
+                elif evt_type == AppEventType.EventTimer:
+                    if self.is_active(owner):
+                        owner.on_timer(evt_data)
 
-                    elif evt_type == AppEventType.EventUsr:
-                        if self.is_active(owner):
-                            owner.on_event(evt_data)
+                elif evt_type == AppEventType.EventUsr:
+                    if self.is_active(owner):
+                        owner.on_event(evt_data)
 
-                    elif evt_type == AppEventType.EventInput:
-                        if self.app_stack:
-                            key, status = evt_data
-                            self.app_stack[-1].on_input(key, status)
+                elif evt_type == AppEventType.EventInput:
+                    if self.app_stack:
+                        key, status = evt_data
+                        self.app_stack[-1].on_input(key, status)
 
-                except Exception as e:
-                    print("[AppManager] event dispatch error:", e)
+                # except Exception as e:
+                #     print("[AppManager] event dispatch error:", e)
             else:
                 # 处理定时器
                 self.timer_do_expires()
@@ -311,9 +236,6 @@ class AppManager:
                     print("[AppManager] render exception:", e)
 
         print("[AppManager] exiting...")
-
-        # 停止定时器
-        await self.timer_svr.stop()
 
         # 退出所有 app
         for app in reversed(self.app_stack):

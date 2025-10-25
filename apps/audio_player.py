@@ -84,8 +84,7 @@ class AudioPlayer:
 
     async def _handle_command(self, cmd, arg):
         if cmd == "PLAY":
-            for file in arg:
-                await self._play_file(file)
+            await self._play_files(arg)
         elif cmd == "PLAY_BG":
             self.bg_paused = False
             print(f"[DEBUG] Starting background playback")
@@ -142,6 +141,94 @@ class AudioPlayer:
             else:
                 self.bg_pos = offset
                 break
+
+    async def _play_files(self, filelist):
+        """连续播放多个 WAV 文件，只初始化一次 I2S，并在全部播放结束后静音"""
+        finish = False
+        i2s_initialized = False
+
+        try:
+            for idx, file in enumerate(filelist):
+                filename = file
+                print(f"[DEBUG] Start file: {filename}")
+
+                with open(file, "rb") as f:
+                    ch, rate, bits, data_start = parse_wav_header(f)
+
+                    # ---- 仅第一次初始化 I2S ----
+                    if not i2s_initialized:
+                        self.i2s.init(
+                            sck=Pin(SCK_PIN),
+                            ws=Pin(WS_PIN),
+                            sd=Pin(SD_PIN),
+                            mode=I2S.TX,
+                            bits=bits,
+                            format=I2S.STEREO if ch == 2 else I2S.MONO,
+                            rate=rate,
+                            ibuf=20000
+                        )
+                        i2s_initialized = True
+                        print(f"[DEBUG] I2S initialized: rate={rate}, bits={bits}, ch={ch}")
+
+                    f.seek(data_start)
+                    
+                    # --- 首文件预热静音 ---
+                    if idx == 0:
+                        await self.swriter.awrite(b"\x00" * 4096)
+
+                    # --- 渐入处理（fade-in）---
+                    fade_ms = 50
+                    fade_samples = int(rate * fade_ms / 1000)
+                    fade_bytes = fade_samples * (bits // 8) * ch
+                    head = f.read(fade_bytes)
+                    import array
+                    if bits == 16:
+                        arr = array.array('h', head)
+                        for i in range(len(arr)):
+                            arr[i] = int(arr[i] * i / len(arr))
+                        await self.swriter.awrite(bytes(arr))
+                    else:
+                        await self.swriter.awrite(head)
+
+                    # --- 主播放循环 ---
+                    while True:
+                        # 可随时中断
+                        if not self.queue.empty():
+                            print(f"[DEBUG] Playback interrupted at {filename}")
+                            finish = True
+                            break
+
+                        data = f.read(4096)
+                        if not data:
+                            print(f"[DEBUG] EOF: {filename}")
+                            break
+
+                        await self.swriter.awrite(data)
+
+                    # --- 每个文件结束后的小衔接延时 ---
+                    #await asyncio.sleep_ms(20)  # 平滑过渡（避免突变）
+
+                if finish:
+                    break
+
+            # --- 所有文件播放完毕后，发送静音 ---
+            print("[DEBUG] All files done, sending silence tail")
+            await self.swriter.awrite(b"\x00" * 4096)
+            #await asyncio.sleep_ms(50)
+
+        except Exception as e:
+            print(f"[DEBUG] Error in _play_files: {e}")
+            finish = True
+
+        finally:
+            # try:
+            #     self.i2s.deinit()
+            #     print("[DEBUG] I2S deinitialized")
+            # except Exception as e:
+            #     print(f"[DEBUG] I2S deinit failed: {e}")
+
+            return finish
+
 
     async def _play_file(self, filename, start=0):
         finish = False

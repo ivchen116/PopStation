@@ -220,7 +220,7 @@ class GamePinPong(PopApp):
             audio_files = res.build_score_files(s1, s2)
             if new_set:
                 audio_files.append(res.SET_FINISH)
-                _set_number, player1_sets_won, player2_sets_won = self.owner.scoreboard.get_game_status()
+                _set_number, player1_sets_won, player2_sets_won = self.scoreboard.get_game_status()
                 audio_files.extend(res.build_score_files(player1_sets_won, player2_sets_won))
             audio_files = ['res/wav/' + filename for filename in audio_files]
             get_audio().play_files(audio_files)
