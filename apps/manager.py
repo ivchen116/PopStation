@@ -34,10 +34,7 @@ class PopApp:
     def on_input(self, key, status): pass
     def on_timer(self, timer_id): pass
     def on_exit(self): pass
-    def render(self, dc): pass
-
-    def update(self):
-        self.dirty = True
+    def render(self): pass
 
     def set_timer(self, timer_id, interval, repeat=False):
         AppManager.instance().set_timer(self, timer_id, interval, repeat)
@@ -66,7 +63,6 @@ class AppManager:
         self.timers = {}
         self.heap = []
         self._running = False
-        self.dc = None
 
     # ---------- App 管理 ----------
     def launch(self, app):
@@ -80,12 +76,6 @@ class AppManager:
     def exit_top(self):
         if self.app_stack:
             self.remove_pending.append(self.app_stack[-1])
-
-    def set_dc(self, dc):
-        self.dc = dc
-
-    def get_dc(self):
-        return self.dc
 
     def add_background(self, app):
         if app not in self.bg_apps:
@@ -169,7 +159,7 @@ class AppManager:
         self.app_stack = [root_app]
         root_app._entered = True
         root_app.on_enter()
-        root_app.render(self.dc)
+        root_app.render()
 
         print("[AppManager] running...")
 
@@ -225,13 +215,12 @@ class AppManager:
                     next_app.on_enter()
                 else:
                     next_app.on_resume()
-                next_app.render(self.dc)
+                next_app.render()
                 #except Exception as e:
                 #    print("[AppManager] on_enter/on_resume/render exception:", e)
-            elif top_app.dirty: # 重新渲染
-                top_app.dirty = False
+            else: # 重新渲染
                 try:
-                    top_app.render(self.dc)
+                    top_app.render()
                 except Exception as e:
                     print("[AppManager] render exception:", e)
 
@@ -256,7 +245,5 @@ def kill(app): AppManager.instance().kill(app)
 def exit_app(): AppManager.instance().exit_top()
 def send_user_event(receiver, evt): AppManager.instance().send_user_event(receiver, evt)
 def send_input_event(key, status): AppManager.instance().send_input_event(key, status)
-def set_dc(dc): AppManager.instance().set_dc(dc)
-def get_dc(): AppManager.instance().get_dc()
 async def run(root_app): await AppManager.instance().run(root_app)
 def stop(): AppManager.instance().stop()

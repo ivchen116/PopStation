@@ -1,7 +1,7 @@
 from button_manager import ButtonManager
 import ble_keyboard as BleKeyboard
 from manager import send_input_event
-import borad_config as hw
+import board_config as hw
 from input_keys import *
 from utils.trace import *
 

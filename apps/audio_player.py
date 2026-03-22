@@ -3,13 +3,18 @@ import os
 import random
 from machine import Pin, I2S
 from utils.queue import EventQueue
-import borad_config as hw
+#import borad_config as hw
 
 # ------------------ I2S 引脚配置 ------------------
-SCK_PIN = hw.I2S_SCK   # BCLK
-WS_PIN  = hw.I2S_WS   # LRCLK
-SD_PIN  = hw.I2S_SD   # DIN
-SHUTDOWN = hw.I2S_SHUTDOWN
+#SCK_PIN = hw.I2S_SCK   # BCLK
+#WS_PIN  = hw.I2S_WS   # LRCLK
+#SD_PIN  = hw.I2S_SD   # DIN
+#SHUTDOWN = hw.I2S_SHUTDOWN
+
+SCK_PIN = 16   # BCLK
+WS_PIN  = 17   # LRCLK
+SD_PIN  = 15   # DIN
+SHUTDOWN = 7
 
 # ------------------ WAV 文件解析 ------------------
 def parse_wav_header(f):
@@ -260,6 +265,7 @@ class AudioPlayer:
                             # --- 1) 写静音预热 ---
                 await self.swriter.awrite(b"\x00" * 4096)  # 50~100ms 静音
                 self.shutdown.value(1)
+                print(f"[DEBUG] shutdown: 1")
 
                 # --- 2) 首段渐入（fade-in）避免突变 click）---
                 fade_ms = 50
@@ -303,6 +309,7 @@ class AudioPlayer:
         finally:
             #self.i2s.deinit()
             self.shutdown.value(0)
+            print(f"[DEBUG] shutdown: 0")
             return finish, offset
 
 # ------------------ 按钮控制 ------------------
@@ -329,19 +336,21 @@ async def button_task(audio_player):
 # ------------------ 主程序 ------------------
 async def main():
     audio = AudioPlayer()
-    audio.set_bg_playlist(["0123456789.wav", "0123456789.wav"], loop=False, random_order=False)
+    #audio.set_bg_playlist(["0123456789.wav", "0123456789.wav"], loop=False, random_order=False)
 
     asyncio.create_task(audio.play_task())
-    asyncio.create_task(button_task(audio))
+    audio.play_file("0123456789.wav")
+    #asyncio.create_task(button_task(audio))
 
-    await audio.queue.put(("PLAY_BG", ""))
+    #await audio.queue.put(("PLAY_BG", ""))
 
     # 模拟插播音效
-    await asyncio.sleep(10)
-    await audio.queue.put(("PLAY", ["beep-08b.wav"]))
+    #await asyncio.sleep(10)
+    # await audio.queue.put(("PLAY", ["beep-08b.wav"]))
 
     while True:
-        await asyncio.sleep(1)
+        await asyncio.sleep(5)
+        audio.play_file("0123456789.wav")
 
 if __name__ == "__main__":
     asyncio.run(main())

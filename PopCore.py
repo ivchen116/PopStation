@@ -22,7 +22,6 @@ class PopApp:
         return cls._instances[cls]
 
     def __init__(self):
-        self.dirty = False
         self._entered = False
 
     def on_enter(self):
@@ -51,9 +50,6 @@ class PopApp:
 
     def cancel_timer(self, timer_id):
         cancel_timer(timer_id, self)
-
-    def update(self):
-        self.dirty = True
 
 
 # ------------------ 定时器服务 ------------------
