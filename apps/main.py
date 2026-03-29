@@ -12,9 +12,10 @@ import tft_config
 from gui.core.gui import Screen
 from gui.widgets.label import Label
 from gui.widgets.progressbar import ProgressBar
+from gui.widgets.shape import Rectangle, Line
 from gui.widgets.image import ImageWidget
 from gui.core.colors import *
-from gui.fonts import font14, arial_50, icons
+from gui.fonts import font10, font14, arial_50, icons, arial35, freesans20
 
 
 class GameMainApp(PopApp):
@@ -70,9 +71,18 @@ class TableTennisScoreboard:
 
     def start_new_game(self):
         """开始新的一局（同 reset_game，用于外部调用）"""
+        if self.game_ended:
+            if self.player1_score > self.player2_score:
+                self.games_player1 += 1
+            else:
+                self.games_player2 += 1 
+            self.current_game += 1
         self.reset_game()
 
     def score_point(self, player):
+        if self.game_ended:
+            return False, self.player1_score, self.player2_score
+
         if player == 1:
             self.player1_score += 1
         elif player == 2:
@@ -81,8 +91,8 @@ class TableTennisScoreboard:
             print("无效的玩家，请输入 1 或 2")
             return False, self.player1_score, self.player2_score
 
-        # 检查是否一局结束（仅在未结束状态下判断）
-        if not self.game_ended and self.is_game_won():
+        # 检查是否一局结束
+        if self.is_game_won():
             self.end_game()
             return True, self.player1_score, self.player2_score   # 返回 True 表示一局结束，分数为结束时的比分
         return False, self.player1_score, self.player2_score
@@ -97,12 +107,6 @@ class TableTennisScoreboard:
         return False
 
     def end_game(self):
-        """记录胜者，增加局分，但不清除当前分数（用于显示结束比分）"""
-        if self.player1_score > self.player2_score:
-            self.games_player1 += 1
-        else:
-            self.games_player2 += 1
-        self.current_game += 1
         self.game_ended = True          # 标记当前局已结束，分数冻结
 
     def get_score(self):
@@ -121,36 +125,78 @@ class TableTennisScoreboard:
 class GamePinPong(PopApp):
     def __init__(self):
         super().__init__()
+
+        # load from config
+        p1_name = "Qiang"
+        p2_name = "Ciya"
+        p1_color = GREEN
+        p2_color = BLUE
+
         dprint(DEBUG_INFO, "GamePinPong init")
-        self.scoreboard = TableTennisScoreboard(player1="Qiang", player2="Ciya")
+        self.scoreboard = TableTennisScoreboard(player1=p1_name, player2=p2_name)
         self.screen = Screen(bgcolor=GRAY)
         screen_width = self.screen.w
         screen_height = self.screen.h
-        self.title = Label(screen_width // 2 , 2, "PingPong", font14, GREEN, align="center")
-        self.server1_label = Label(20, 40, "*", font14, BLUE)
-        self.player1_label = Label(20 + self.server1_label.w, 40, "Qiang", font14, BLUE)
-        self.server2_label = Label(20 + screen_width // 2, 40, "*", font14, RED)
-        self.player2_label = Label(20 + screen_width // 2 + self.server2_label.w, 40, "Ciya", font14, RED)
 
-        self.score1_label = Label(screen_width // 2 - 20, 80, "00", arial_50, BLUE, align="right")
-        self.score_split_label = Label(120, 80, ":", arial_50, GRAY, align="center")
-        self.score2_label = Label(screen_width // 2 + 20, 80, "00", arial_50, RED)
+        # TOP HEADER BAR
+        toolbar_h = 40
+        toolbar = Rectangle(0, 0, screen_width, toolbar_h, GRAY)
+        cfg_icon = Label(20, 10, "&", font14, WHITE)
+        p1_add = Label(80, 10, "+", font14, WHITE)
+        start_stop = Label(140, 10, ">", font14, WHITE)
+        p2_add = Label(200, 10, "+", font14, WHITE)
+        toolbar.add_list([cfg_icon, p1_add, start_stop, p2_add])
 
-        self.p1_win_set = Label(screen_width//4, screen_height - 80, "0", font14, BLUE, align='center')
-        self.p2_win_set = Label(int(screen_width//4 * 3), screen_height - 80, "0", font14, RED, align="center")
-        self.progress_bar = ProgressBar(20, screen_height - 40 ,
-                                       screen_width - 40, 10, GREEN, BLUE, RED, 50)
+        # MAIN PART
+        scorbar_h = 40
+        mainpart_h = screen_height - toolbar_h - scorbar_h
+        mainpart = Rectangle(0, 40, screen_width, mainpart_h)
 
-        # 提示标签（用于显示“按ENTER开始下一局”）
-        self.prompt_label = Label(screen_width // 2, screen_height // 2, "", font14, YELLOW, align="center")
+        # 左侧分数板
+        part1 = Rectangle(0, 0, screen_width//2, mainpart_h, p1_color)
+        self.p1_win_set = Label(screen_width//4 - 10, 10, "0", arial35, WHITE, w=screen_width//4, h=40, align='right')
+        self.score1_label = Label(0, 50, "00", arial_50, WHITE, w=screen_width//2, align="center")
+        self.player1_label = Label(0, 120, p1_name, freesans20, WHITE, w=screen_width//2, align="center")
+        part1.add_list([self.p1_win_set, self.player1_label, self.score1_label])
+
+        # 右侧分数板
+        part2 = Rectangle(screen_width//2, 0, screen_width//2, mainpart_h, p2_color)
+        self.p2_win_set = Label(10, 10, "0", arial35, WHITE, w=screen_width//4, align="left")
+        self.score2_label = Label(0, 50, "00", arial_50, WHITE, w=screen_width//2, align="center")
+        self.player2_label = Label(0, 120, p2_name, freesans20, WHITE, w=screen_width//2, align="center")
+        part2.add_list([self.p2_win_set, self.player2_label, self.score2_label])
+
+        mainpart.add_list([part1, part2])
+
+        # 状态标签
+        self.prompt_label = Label(0, 80, "Press ENTER to start", font10,
+                                  WHITE, bgcolor=YELLOW,
+                                  w=screen_width, h=80,
+                                  align="center", valign="middle")
         self.prompt_label.visible = False
 
-        self.screen.add_list([self.title, self.player1_label, self.player2_label,
-                              self.server1_label, self.server2_label,
-                              self.score1_label, self.score_split_label, self.score2_label,
-                              self.p1_win_set, self.p2_win_set,
-                              self.progress_bar,
-                              self.prompt_label])
+        # 历史计分板
+        self.scorebar = Rectangle(0, screen_height - scorbar_h, screen_width, scorbar_h, GRAY)
+        p1_sb_name = Label(0, 0, p1_name, font10, WHITE, w=60, h=scorbar_h//2, valign="middle")
+        p2_sb_name = Label(0, scorbar_h//2, p2_name, font10, WHITE, w=60, h=scorbar_h//2, valign="middle")
+        sb_split_line = Line(0, scorbar_h//2, screen_width, scorbar_h//2, WHITE)
+        self.scorebar.add_list([p1_sb_name, sb_split_line, p2_sb_name])
+
+        # 历史比分记录
+        self.history_records = []
+        self.history_records_labels = []
+        self.history_records_show_n = 0
+
+        for i in range(7):
+            new_label1 = Label(60 + 25 *i, 0, "0", font10, WHITE, w=20, h=20, align="center", valign="middle")
+            new_label2 = Label(60 + 25 *i, 20, "0", font10, WHITE, w=20, h=20, align="center", valign="middle")
+            new_label1.set_visible(False)
+            new_label2.set_visible(False)
+            self.history_records_labels.append((new_label1, new_label2))
+            self.scorebar.add(new_label1)
+            self.scorebar.add(new_label2)
+
+        self.screen.add_list([toolbar, mainpart, self.scorebar, self.prompt_label])
         
         # 游戏状态标志
         self.game_active = True       # 当前局是否进行中
@@ -167,35 +213,36 @@ class GamePinPong(PopApp):
         _, g1, g2 = self.scoreboard.get_game_status()
         self.p1_win_set.set_text(str(g1))
         self.p2_win_set.set_text(str(g2))
-        if g1 + g2 == 0:
-            rate = 50
-        else:
-            rate = int(g1/(g1 + g2)*100)
-            if rate < 1:
-                rate = 1
-            elif rate > 99:
-                rate = 99
-        self.progress_bar.set_value(rate)
 
-        # 可选：发球指示器（根据总分奇偶）
-        if not self.waiting_for_next_set:  # 仅游戏进行中显示发球指示器
-            total = s1 + s2
-            server = 1 if (total // 2) % 2 == 0 else 2
-            self.server1_label.visible = (server == 1)
-            self.server2_label.visible = (server == 2)
-        else:
-            # 等待下一局时隐藏发球指示器
-            self.server1_label.visible = False
-            self.server2_label.visible = False
+        # 是否增加显示
+        score_history_n = len(self.history_records)
+        if score_history_n > len(self.history_records_labels):
+            score_history_n = len(self.history_records_labels)
+        if self.history_records_show_n < score_history_n:
+            for i in range(self.history_records_show_n, score_history_n):
+                p1_score, p2_score = self.history_records[i]
+                p1_label, p2_label = self.history_records_labels[i]
+                # update label
+                p1_label.set_text(f"{p1_score}")
+                p1_label.set_visible(True)
+                p2_label.set_text(f"{p2_score}")
+                p2_label.set_visible(True)
+            self.history_records_show_n = score_history_n
+        elif self.history_records_show_n > score_history_n:
+            for i in range(score_history_n, self.history_records_show_n):
+                p1_label, p2_label = self.history_records_labels[i]
+                p1_label.set_visible(False)
+                p2_label.set_visible(False)
+            self.history_records_show_n = score_history_n
 
     def set_game_active(self, active):
         """设置游戏是否允许加分"""
         self.waiting_for_next_set = not active
-        self.prompt_label.visible = not active
+        self.prompt_label.set_visible(not active)
         if active:
             self.prompt_label.set_text("")
         else:
-            self.prompt_label.set_text("Press ENTER")
+            self.prompt_label.set_text("Press ENTER to start")
 
     def start_next_set(self):
         """开始新的一局（重置当前局分数）"""
@@ -206,6 +253,7 @@ class GamePinPong(PopApp):
 
     def start_new_match(self):
         """开始全新的比赛"""
+        self.history_records = []
         self.scoreboard.start_new_match()
         self.update_score_display()
         self.set_game_active(True)
@@ -288,12 +336,13 @@ class GamePinPong(PopApp):
             audio_files = ['res/wav/' + filename for filename in audio_files]
             get_audio().play_files(audio_files)
 
-            # 刷新UI显示
-            self.update_score_display()
-
             # 如果一局结束，停用游戏，等待下一局
             if new_set:
                 self.set_game_active(False)
+                self.history_records.append((s1, s2))
+
+            # 刷新UI显示
+            self.update_score_display()
 
 
     def render(self):

@@ -1,81 +1,90 @@
 from gui.core.gui import Widget
+from gui.core.geom import Rect
 
 class Label(Widget):
-    def __init__(self, x, y, text, font, color, align='left', valign='top'):
+    def __init__(self, x, y, text, font, color, bgcolor = None, w = 0, h = 0, align='left', valign='top'):
         self.text = text
         self.color = color
         self.font = font
-        self.pos_x = x
-        self.pos_y = y
         self.align = align
         self.valign = valign
+        self._text_pos_dirty = True
+        self.text_h = font.height()
+        self._update_size()
+        if w == 0:
+            w = self.text_w
+        if h == 0:
+            h = self.text_h
 
-        # 初始化尺寸
-        self.h = font.height()           # 固定高度
-        self._update_size()               # 计算初始宽度
-        self._update_locate()
-
-        super().__init__(self.x, self.y, self.w, self.h)
-
-    def move_to(self, x, y):
-        dx = x - self.pos_x
-        dy = y - self.pos_y
-        self.pos_x = x
-        self.pos_y = y
-        self._update_locate()
-        return super().move(dx, dy)
-
-    def move(self, dx, dy):
-        return self.move_to(self.pos_x + dx, self.pos_y + dy)
-
-    def _update_locate(self):
-        # 水平坐标
-        if self.align == 'left':
-            self.x = self.pos_x
-        elif self.align == 'center':
-            self.x = self.pos_x - (self.w // 2)
-        else:  # right
-            self.x = self.pos_x - self.w
-        # 垂直坐标
-        if self.valign == 'top':
-            self.y = self.pos_y
-        elif self.valign == 'middle':
-            self.y = self.pos_y - (self.h // 2)
-        else:  # bottom
-            self.y = self.pos_y - self.h
+        super().__init__(x, y, w, h, bgcolor=bgcolor)
+        self._update_offset()
 
     def _update_size(self):
         """根据当前文本重新计算宽度"""
-        self.w = 0
+        self.text_w = 0
         for ch in self.text:
             _, _, char_width = self.font.get_ch(ch)
-            self.w += char_width
+            self.text_w += char_width
+
+    def _update_offset(self):
+        # ===== 水平 =====
+        if self.align == 'left':
+            self.offset_x = 0
+        elif self.align == 'center':
+            self.offset_x = (self.w - self.text_w) // 2
+        else:  # right
+            self.offset_x = self.w - self.text_w
+
+        # ===== 垂直 =====
+        if self.valign == 'top':
+            self.offset_y = 0
+        elif self.valign == 'middle':
+            self.offset_y = (self.h - self.text_h) // 2
+        else:  # bottom
+            self.offset_y = self.h - self.text_h
+
+    def _text_rect(self):
+        label_rect = self.global_rect()
+
+        return Rect(label_rect.x + self.offset_x, label_rect.y + self.offset_y, self.text_w, self.text_h)
 
     def set_text(self, new_text):
         """
         更新文本内容，并自动刷新显示
         """
-        print(f"set_text:{new_text}")
         if self.text == new_text:
             return
 
-        print(f"self.screen:{self.screen}")
-        # 1. 标记旧区域为脏
-        if self.screen:
-            self.screen.invalid_rect(self.global_rect())
+        # 标记旧区域为脏
+        old_rect = self._text_rect()
 
-        # 2. 更新文本并重新计算宽度
+        # 更新文本内容
+        old_len = self.text_w
         self.text = new_text
-        old_w = self.w
         self._update_size()
-        self._update_locate()
+        self._update_offset()
 
-        # 3. 如果宽度变化，标记新区域为脏
-        if self.screen and self.w != old_w:
-            self.screen.invalid_rect(self.global_rect())
-        # 注意：如果宽度未变，仅文本内容变化，旧区域的重绘已足够
+        # 标记新区域为脏
+        print(f"set_text:{new_text}")
+        print(f"self.screen:{self.screen}")
+        if self.screen:
+            if old_len < self.text_w:
+                self.screen.invalid_rect(self._text_rect())
+                print(f"invalid new rect:{self._text_rect()}")
+            else:
+                self.screen.invalid_rect(old_rect)
+                print(f"invalid old rect:{old_rect}")
+
+    def set_align(self, align, valign):
+        self.align = align
+        self.valign = valign
+        self._update_offset()
 
     def on_draw(self, draw_ctx):
         # 使用全局坐标绘制文本
         global_rect = self.global_rect()
-        draw_ctx.text(self.font, self.text, global_rect.x, global_rect.y, self.color)
+
+        tx = global_rect.x + self.offset_x
+        ty = global_rect.y + self.offset_y
+
+        draw_ctx.text(self.font, self.text, tx, ty, self.color)

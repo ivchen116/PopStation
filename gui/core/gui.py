@@ -64,6 +64,25 @@ class Widget:
         for child in self.children:
             child.on_add_to_screen(screen)
 
+    def add_list(self, w):
+        for child in w:
+            self.add(child)
+
+    def is_visible(self):
+        if not self.visible:
+            return False
+
+        if self.parent:
+            return self.parent.is_visible()
+
+        return True
+
+    def set_visible(self, v):
+        if v == self.visible:
+            return
+        self.visible = v
+        self.invalidate()
+
     @property
     def rect(self):
         """返回局部坐标矩形"""
@@ -162,7 +181,7 @@ class Screen:
         w.parent = self.root
         w.screen = self
         #print('Add child to root.')
-        self.root.children.append(w)
+        self.root.add(w)
 
     def add_list(self, w):
         for child in w:

@@ -154,6 +154,14 @@ class DrawContext:
         self.fill_rect(x, y, 1, length, color)
 
     def line(self, x0, y0, x1, y1, color):
+        if x0 == x1:
+            self.vline(x0, y0, y1 - y0, color)
+        elif y0 == y1:
+            self.hline(x0, y0, x1 - x0, color)
+        else:
+            self.line_bresenham(x0, y0, x1, y1, color)
+
+    def line_bresenham(self, x0, y0, x1, y1, color):
         """绘制任意直线（Bresenham算法）"""
         dx = abs(x1 - x0)
         dy = abs(y1 - y0)
@@ -384,3 +392,145 @@ class DrawContext:
                         buffer_y = y - self.clip.y
                         idx = (buffer_y * self.w + buffer_x) * 2
                         self.buf[idx:idx+2] = color_bytes
+
+    # 在 DrawContext 类中添加以下方法
+    def stroke_rect(self, x, y, width, height, color, line_width=1):
+        """
+        绘制矩形边框
+        :param x, y: 左上角坐标（屏幕绝对坐标）
+        :param width, height: 矩形尺寸
+        :param color: 边框颜色（16位RGB565）
+        :param line_width: 边框宽度（像素），默认为1
+        """
+        if line_width <= 0:
+            return
+
+        # 如果线宽为1，直接复用现有的 rect 方法（它使用 hline/vline）
+        if line_width == 1:
+            self.rect(x, y, width, height, color)
+        else:
+            # 线宽大于1时，通过绘制四个填充矩形条来实现
+            # 上边框
+            self.fill_rect(x, y, width, line_width, color)
+            # 下边框
+            self.fill_rect(x, y + height - line_width, width, line_width, color)
+            # 左边框
+            self.fill_rect(x, y + line_width, line_width, height - 2 * line_width, color)
+            # 右边框
+            self.fill_rect(x + width - line_width, y + line_width, line_width, height - 2 * line_width, color)
+
+
+    def stroke_rounded_rect(self, x, y, width, height, radius, color, line_width=1):
+        """
+        绘制圆角矩形边框
+        :param x, y: 左上角坐标（屏幕绝对坐标）
+        :param width, height: 矩形尺寸
+        :param radius: 圆角半径
+        :param color: 边框颜色
+        :param line_width: 边框宽度（像素），目前仅支持1（因圆角复杂，简化实现）
+        """
+        if line_width != 1:
+            # 此处可扩展支持更宽边框，但为简化，若线宽不为1则降级为普通矩形边框
+            self.stroke_rect(x, y, width, height, color, line_width)
+            return
+
+        # 先绘制四条直线（避开圆角区域）
+        # 上边直线（从 x+radius 到 x+width-radius）
+        if width > 2 * radius:
+            self.hline(x + radius, y, width - 2 * radius, color)
+        # 下边直线
+        if width > 2 * radius:
+            self.hline(x + radius, y + height - 1, width - 2 * radius, color)
+        # 左边直线
+        if height > 2 * radius:
+            self.vline(x, y + radius, height - 2 * radius, color)
+        # 右边直线
+        if height > 2 * radius:
+            self.vline(x + width - 1, y + radius, height - 2 * radius, color)
+
+        # 绘制四个圆弧（每个圆弧为四分之一圆）
+        # 左上角圆弧：圆心 (x+radius, y+radius)，半径 radius，角度范围 90°~180°
+        self._draw_arc(x + radius, y + radius, radius, 90, 180, color)
+        # 右上角圆弧：圆心 (x+width-radius-1, y+radius)，半径 radius，角度范围 0°~90°
+        self._draw_arc(x + width - radius - 1, y + radius, radius, 0, 90, color)
+        # 左下角圆弧：圆心 (x+radius, y+height-radius-1)，半径 radius，角度范围 180°~270°
+        self._draw_arc(x + radius, y + height - radius - 1, radius, 180, 270, color)
+        # 右下角圆弧：圆心 (x+width-radius-1, y+height-radius-1)，半径 radius，角度范围 270°~360°
+        self._draw_arc(x + width - radius - 1, y + height - radius - 1, radius, 270, 360, color)
+
+
+    def _draw_arc(self, cx, cy, radius, start_angle, end_angle, color):
+        """
+        绘制圆弧（仅支持90°整数倍起始和结束）
+        :param cx, cy: 圆心坐标（屏幕绝对坐标）
+        :param radius: 半径
+        :param start_angle, end_angle: 起始和结束角度（度数，0°为右侧，逆时针）
+        :param color: 颜色
+        """
+        # 使用中点圆算法，仅绘制指定角度范围内的点
+        x = 0
+        y = radius
+        d = 1 - radius
+        # 计算角度边界对应的 x/y 阈值
+        # 根据象限和角度范围确定绘制条件
+        while x <= y:
+            # 8个对称点
+            points = [
+                (cx + x, cy - y),  # 1
+                (cx + y, cy - x),  # 2
+                (cx + y, cy + x),  # 3
+                (cx + x, cy + y),  # 4
+                (cx - x, cy + y),  # 5
+                (cx - y, cy + x),  # 6
+                (cx - y, cy - x),  # 7
+                (cx - x, cy - y)   # 8
+            ]
+            for i, (px, py) in enumerate(points):
+                # 根据象限判断角度范围（粗略，实际需要精确计算）
+                angle = (i * 45) % 360
+                # 简化：仅当角度在[start_angle, end_angle)内时绘制
+                if start_angle <= angle < end_angle:
+                    self.pixel(px, py, color)
+            x += 1
+            if d < 0:
+                d += 2 * x + 1
+            else:
+                y -= 1
+                d += 2 * (x - y) + 1
+
+
+    def stroke_circle(self, cx, cy, radius, color, line_width=1):
+        """
+        绘制圆形边框
+        :param cx, cy: 圆心坐标（屏幕绝对坐标）
+        :param radius: 半径
+        :param color: 边框颜色
+        :param line_width: 边框宽度（像素），目前仅支持1（可通过绘制同心圆扩展）
+        """
+        if line_width != 1:
+            # 对于更宽边框，可绘制多个同心圆，但为避免性能问题，暂只实现单像素
+            # 此处仅绘制最外圈，然后内部填充（需背景色），为简化，先忽略宽度>1的情况
+            # 简单处理：仍然绘制单像素边框
+            pass
+
+        # 使用中点圆算法绘制圆形轮廓
+        x = 0
+        y = radius
+        d = 1 - radius
+        while x <= y:
+            # 绘制8个对称点
+            self.pixel(cx + x, cy + y, color)
+            self.pixel(cx - x, cy + y, color)
+            self.pixel(cx + x, cy - y, color)
+            self.pixel(cx - x, cy - y, color)
+            self.pixel(cx + y, cy + x, color)
+            self.pixel(cx - y, cy + x, color)
+            self.pixel(cx + y, cy - x, color)
+            self.pixel(cx - y, cy - x, color)
+
+            x += 1
+            if d < 0:
+                d += 2 * x + 1
+            else:
+                y -= 1
+                d += 2 * (x - y) + 1
