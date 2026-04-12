@@ -320,10 +320,10 @@ class GamePinPong(PopApp):
         s1 = s2 = 0
 
         if status == KEY_S_PRESSED:
-            if key in (GPIO_KEY_PREV, BLE_KEY_UP):
+            if key in (GPIO_KEY_PREV, BLE_KEY_LEFT):
                 new_set, s1, s2 = self.scoreboard.score_point(1)
                 score_change = True
-            elif key in (GPIO_KEY_NEXT, BLE_KEY_DOWN):
+            elif key in (GPIO_KEY_NEXT, BLE_KEY_RIGHT):
                 new_set, s1, s2 = self.scoreboard.score_point(2)
                 score_change = True
 

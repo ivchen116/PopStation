@@ -11,10 +11,55 @@ WS_PIN  = hw.AUDIO_I2S_WS   # LRCLK
 SD_PIN  = hw.AUDIO_I2S_SD   # DIN
 SHUTDOWN = hw.AUDIO_I2S_SHUTDOWN
 
-#SCK_PIN = 16   # BCLK
-#WS_PIN  = 17   # LRCLK
-#SD_PIN  = 15   # DIN
-#SHUTDOWN = 7
+# SCK_PIN = 16   # BCLK
+# WS_PIN  = 17   # LRCLK
+# SD_PIN  = 15   # DIN
+# SHUTDOWN = 7
+
+global_audio_volume = 128 # 1~256
+
+def set_global_audio_volume(volume):
+    global global_audio_volume
+    global_audio_volume = volume
+
+def get_global_audio_volume():
+    return global_audio_volume
+
+@micropython.viper
+def adjust_volume_viper(buf: ptr8, length: int, volume: int):
+    for i in range(0, length, 2):
+        sample = buf[i] | (buf[i+1] << 8)
+        if sample >= 32768:
+            sample -= 65536
+
+        sample = (sample * volume) >> 8
+
+        if sample > 32767:
+            sample = 32767
+        elif sample < -32768:
+            sample = -32768
+
+        buf[i] = sample & 0xFF
+        buf[i+1] = (sample >> 8) & 0xFF
+
+@micropython.viper
+def fade_in_viper(buf: ptr8, length: int):
+    samples = length // 2
+    for i in range(samples):
+        idx = i * 2
+        sample = buf[idx] | (buf[idx+1] << 8)
+        if sample >= 32768:
+            sample -= 65536
+
+        sample = (sample * i) // samples
+
+        if sample > 32767:
+            sample = 32767
+        elif sample < -32768:
+            sample = -32768
+
+        buf[idx] = sample & 0xFF
+        buf[idx+1] = (sample >> 8) & 0xFF
 
 # ------------------ WAV 文件解析 ------------------
 def parse_wav_header(f):
@@ -24,10 +69,14 @@ def parse_wav_header(f):
     f.seek(34)
     bits_per_sample = int.from_bytes(f.read(2), "little")
     f.seek(44)
-    print(f"[DEBUG] WAV Header: channels={num_channels}, rate={sample_rate}, bits={bits_per_sample}")
+    #print(f"[DEBUG] WAV Header: channels={num_channels}, rate={sample_rate}, bits={bits_per_sample}")
     return num_channels, sample_rate, bits_per_sample, 44
 
 i2s_inited = False
+
+BUF_SIZE = 4096
+SILENCE_SIZE = 0
+
 # ------------------ 音频播放器 ------------------
 class AudioPlayer:
     def __init__(self):
@@ -38,6 +87,8 @@ class AudioPlayer:
         self.bg_paused = True
         self.loop_mode = True
         self.random_mode = False
+        self._buf = bytearray(BUF_SIZE)
+        self._silence = bytes(SILENCE_SIZE)
 
         # 初始化 I2S
         self.i2s = I2S(
@@ -173,27 +224,31 @@ class AudioPlayer:
                             ibuf=20000
                         )
                         i2s_initialized = True
-                        print(f"[DEBUG] I2S initialized: rate={rate}, bits={bits}, ch={ch}")
+                        self.shutdown.value(1)
+                        #print(f"[DEBUG] I2S initialized: rate={rate}, bits={bits}, ch={ch}")
 
                     f.seek(data_start)
                     
-                    # --- 首文件预热静音 ---
-                    if idx == 0:
-                        await self.swriter.awrite(b"\x00" * 4096)
+                    # --- 首文件预热静音(实测无效果?) ---
+                    if idx == 0 and len(self._silence):
+                        await self.swriter.awrite(self._silence)
 
-                    # --- 渐入处理（fade-in）---
-                    fade_ms = 50
-                    fade_samples = int(rate * fade_ms / 1000)
-                    fade_bytes = fade_samples * (bits // 8) * ch
-                    head = f.read(fade_bytes)
-                    import array
-                    if bits == 16:
-                        arr = array.array('h', head)
-                        for i in range(len(arr)):
-                            arr[i] = int(arr[i] * i / len(arr))
-                        await self.swriter.awrite(bytes(arr))
-                    else:
-                        await self.swriter.awrite(head)
+                    # --- 渐入处理，处理文件首'啵'音（fade-in）---
+                    fade_ms = 60
+                    frame_size = (bits // 8) * ch
+
+                    fade_frames = int(rate * fade_ms / 1000)
+                    fade_bytes = fade_frames * frame_size
+                    #print(f"[DEBUG] fade_frames:{fade_frames}, fade_bytes:{fade_bytes}")
+
+                    n = f.readinto(memoryview(self._buf)[:fade_bytes])
+                    if bits == 16 and n > 0:
+                        fade_in_viper(self._buf, n)
+
+                    if global_audio_volume != 256:
+                        adjust_volume_viper(self._buf, n, global_audio_volume)
+                    
+                    await self.swriter.awrite(memoryview(self._buf)[:n])
 
                     # --- 主播放循环 ---
                     while True:
@@ -203,23 +258,22 @@ class AudioPlayer:
                             finish = True
                             break
 
-                        data = f.read(4096)
-                        if not data:
-                            print(f"[DEBUG] EOF: {filename}")
+                        n = f.readinto(self._buf)
+                        if not n:
                             break
 
-                        await self.swriter.awrite(data)
+                        if global_audio_volume != 256:
+                            adjust_volume_viper(self._buf, n, global_audio_volume)
 
-                    # --- 每个文件结束后的小衔接延时 ---
-                    #await asyncio.sleep_ms(20)  # 平滑过渡（避免突变）
+                        await self.swriter.awrite(memoryview(self._buf)[:n])
 
                 if finish:
                     break
 
             # --- 所有文件播放完毕后，发送静音 ---
-            print("[DEBUG] All files done, sending silence tail")
-            await self.swriter.awrite(b"\x00" * 4096)
-            #await asyncio.sleep_ms(50)
+            #print("[DEBUG] All files done, sending silence tail")
+            if len(self._silence):
+                await self.swriter.awrite(self._silence)
 
         except Exception as e:
             print(f"[DEBUG] Error in _play_files: {e}")
@@ -235,89 +289,13 @@ class AudioPlayer:
             return finish
 
 
-    async def _play_file(self, filename, start=0):
-        finish = False
-        offset = start
-        try:
-            with open(filename, "rb") as f:
-                ch, rate, bits, data_start = parse_wav_header(f)
-
-                global i2s_inited
-                # 初始化 I2S 参数
-                #self.i2s.deinit()
-                #if i2s_inited is not True:
-                self.i2s.init(
-                    sck=Pin(SCK_PIN),
-                    ws=Pin(WS_PIN),
-                    sd=Pin(SD_PIN),
-                    mode=I2S.TX,
-                    bits=bits,
-                    format=I2S.STEREO if ch == 2 else I2S.MONO,
-                    rate=rate,
-                    ibuf=20000
-                )
-                #print(f"[DEBUG] I2S re-initialized: rate={rate}, bits={bits}, channels={ch}")
-                i2s_inited = True
-
-                f.seek(offset + data_start)
-                print(f"[DEBUG] Start playback from byte: {data_start + start}")
-                #await self.swriter.awrite(b"\x00" * 4096)
-                            # --- 1) 写静音预热 ---
-                await self.swriter.awrite(b"\x00" * 4096)  # 50~100ms 静音
-                self.shutdown.value(1)
-                print(f"[DEBUG] shutdown: 1")
-
-                # --- 2) 首段渐入（fade-in）避免突变 click）---
-                fade_ms = 50
-                fade_samples = int(rate * fade_ms / 1000)
-                fade_bytes = fade_samples * (bits // 8) * ch
-                head = f.read(fade_bytes)
-                import array
-                if bits == 16:
-                    arr = array.array('h', head)
-                    for i in range(len(arr)):
-                        arr[i] = int(arr[i] * i / len(arr))  # 线性渐入
-                    await self.swriter.awrite(bytes(arr))
-                else:
-                    # 其他位深直接写
-                    await self.swriter.awrite(head)
-
-                offset += fade_bytes
-                
-                while True:
-                    if not self.queue.empty():
-                        print(f"[DEBUG] Playback interrupted: {filename}, offset={offset}")
-                        break
-
-                    data = f.read(4096)
-                    if not data:
-                        print(f"[DEBUG] End of file reached: {filename}")
-                        finish  = True
-                        break
-
-                    await self.swriter.awrite(data)
-                    #await self.swriter.awrite(b"\x00" * 1024)
-                    offset += len(data)
-                    #await asyncio.sleep(0)
-
-                await self.swriter.awrite(b"\x00" * 2048)
-                print(f"[DEBUG] Stop playback: {filename}")
-
-        except Exception as e:
-            print(f"[DEBUG] Error playing file {filename}: {e}")
-            finish = True
-        finally:
-            #self.i2s.deinit()
-            self.shutdown.value(0)
-            print(f"[DEBUG] shutdown: 0")
-            return finish, offset
-
-# ------------------ 按钮控制 ------------------
-btn_prev = Pin(1, Pin.IN, Pin.PULL_UP)
-btn_next = Pin(2, Pin.IN, Pin.PULL_UP)
-btn_pause = Pin(3, Pin.IN, Pin.PULL_UP)
-
+# ------------ TEST START ------------
 async def button_task(audio_player):
+    # ------------------ 按钮控制测试 ------------------
+    btn_prev = Pin(1, Pin.IN, Pin.PULL_UP)
+    btn_next = Pin(2, Pin.IN, Pin.PULL_UP)
+    btn_pause = Pin(3, Pin.IN, Pin.PULL_UP)
+
     while True:
         if not btn_prev.value():
             await audio_player.queue.put(("PREV_BG", None))
@@ -333,7 +311,7 @@ async def button_task(audio_player):
             await asyncio.sleep(0.3)
         await asyncio.sleep(0.05)
 
-# ------------------ 主程序 ------------------
+# ------------------ 主测试程序 ------------------
 async def main():
     audio = AudioPlayer()
     #audio.set_bg_playlist(["0123456789.wav", "0123456789.wav"], loop=False, random_order=False)
@@ -354,3 +332,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+# ------------ TEST END ------------
