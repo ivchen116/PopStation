@@ -12,10 +12,10 @@ def send_input_event_wrapper(key_id, key_status):
 
 def btn_key_to_event(key_event):
     GPIO_KEY_MAP = {
-        hw.GPIO_KEY_0: GPIO_KEY_PREV,
-        hw.GPIO_KEY_1: GPIO_KEY_NEXT,
-        hw.GPIO_KEY_2: GPIO_KEY_BACK,
-        hw.GPIO_KEY_3: GPIO_KEY_ENTER
+        hw.GPIO_KEY_0: GPIO_KEY_NEXT,
+        hw.GPIO_KEY_1: GPIO_KEY_ENTER,
+        hw.GPIO_KEY_2: GPIO_KEY_PREV,
+        hw.GPIO_KEY_3: GPIO_KEY_MENU
     }
     key_id = GPIO_KEY_MAP.get(key_event["pin"], None)
     if key_id is None:

@@ -138,7 +138,7 @@ class Widget:
             return
         # 使用全局坐标绘制背景
         gr = self.global_rect()
-        if self.bgcolor:
+        if self.bgcolor is not None:
             draw_ctx.fill_rect(gr.x, gr.y, gr.w, gr.h, self.bgcolor)
 
         # 调用子类实现的绘制逻辑（子类应使用全局坐标）

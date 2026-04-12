@@ -1,3 +1,5 @@
+import tft_config
+
 import uasyncio as asyncio
 from manager import PopApp, run, launch, exit_app
 import input_manager
@@ -7,15 +9,13 @@ from audio_player import AudioPlayer
 import utils.res as res
 from utils.trace import *
 
-import tft_config
-
 from gui.core.gui import Screen
 from gui.widgets.label import Label
 from gui.widgets.progressbar import ProgressBar
 from gui.widgets.shape import Rectangle, Line
 from gui.widgets.image import ImageWidget
 from gui.core.colors import *
-from gui.fonts import font10, font14, arial_50, icons, arial35, freesans20
+from gui.fonts import font10, font14, arial_50, icon_font24, arial35, freesans20
 
 
 class GameMainApp(PopApp):
@@ -34,6 +34,7 @@ class GameMainApp(PopApp):
 
     def on_resume(self):
         dprint(DEBUG_INFO, "GameMainApp on_resume")
+        self.screen.invalidate()
 
     def on_exit(self):
         dprint(DEBUG_INFO, "GameMainApp on_exit")
@@ -141,10 +142,10 @@ class GamePinPong(PopApp):
         # TOP HEADER BAR
         toolbar_h = 40
         toolbar = Rectangle(0, 0, screen_width, toolbar_h, GRAY)
-        cfg_icon = Label(20, 10, "&", font14, WHITE)
-        p1_add = Label(80, 10, "+", font14, WHITE)
-        start_stop = Label(140, 10, ">", font14, WHITE)
-        p2_add = Label(200, 10, "+", font14, WHITE)
+        cfg_icon = Label(20, 10, icon_font24.MENU, icon_font24, WHITE)
+        p1_add = Label(80, 10, icon_font24.ADD, icon_font24, WHITE)
+        start_stop = Label(140, 10, icon_font24.REFRESH, icon_font24, WHITE)
+        p2_add = Label(200, 10, icon_font24.ADD, icon_font24, WHITE)
         toolbar.add_list([cfg_icon, p1_add, start_stop, p2_add])
 
         # MAIN PART
@@ -291,7 +292,7 @@ class GamePinPong(PopApp):
         score_change = False
 
         # 处理长按菜单返回（退出）
-        if key in (GPIO_KEY_BACK, BLE_KEY_MENU):
+        if key in (GPIO_KEY_MENU, BLE_KEY_MENU):
             if status == KEY_S_PRESSED:
                 self.set_timer(1, 3000)
             elif status == KEY_S_RELEASED:

@@ -3,18 +3,18 @@ import os
 import random
 from machine import Pin, I2S
 from utils.queue import EventQueue
-#import borad_config as hw
+import board_config as hw
 
 # ------------------ I2S 引脚配置 ------------------
-#SCK_PIN = hw.I2S_SCK   # BCLK
-#WS_PIN  = hw.I2S_WS   # LRCLK
-#SD_PIN  = hw.I2S_SD   # DIN
-#SHUTDOWN = hw.I2S_SHUTDOWN
+SCK_PIN = hw.AUDIO_I2S_SCK   # BCLK
+WS_PIN  = hw.AUDIO_I2S_WS   # LRCLK
+SD_PIN  = hw.AUDIO_I2S_SD   # DIN
+SHUTDOWN = hw.AUDIO_I2S_SHUTDOWN
 
-SCK_PIN = 16   # BCLK
-WS_PIN  = 17   # LRCLK
-SD_PIN  = 15   # DIN
-SHUTDOWN = 7
+#SCK_PIN = 16   # BCLK
+#WS_PIN  = 17   # LRCLK
+#SD_PIN  = 15   # DIN
+#SHUTDOWN = 7
 
 # ------------------ WAV 文件解析 ------------------
 def parse_wav_header(f):

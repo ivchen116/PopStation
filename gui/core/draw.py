@@ -21,11 +21,21 @@ def fill_fast(buf, w:int, h:int, color:int):
 
 @micropython.viper
 def blit_line(dst, dst_idx: int, src, src_idx: int, length: int):
-    d = ptr8(dst)
-    s = ptr8(src)
+    d = ptr16(dst)
+    s = ptr16(src)
 
     for i in range(length):
         d[dst_idx + i] = s[src_idx + i]
+
+@micropython.viper
+def blit_line_skip_color(dst, dst_idx: int, src, src_idx: int, length: int, skip_color: int):
+    d = ptr16(dst)
+    s = ptr16(src)
+    count = 0
+
+    for i in range(length):
+        if s[src_idx + i] != skip_color:
+            d[dst_idx + i] = s[src_idx + i]
 
 @micropython.viper
 def fill_rect_fast(buf, buf_w: int,
@@ -185,9 +195,6 @@ class DrawContext:
                 err += dx
                 y0 += sy
 
-    # def fill_hline(self, x, y0, y1, data):
-    #     blit_line()
-
 
     def draw_buffer(self, buffer, x, y, width, height):
         """绘制外部缓冲区（位图）"""
@@ -205,13 +212,31 @@ class DrawContext:
         dst_y = draw_rect.y - self.clip.y
                 
         for y_offset in range(copy_h):
-            src_start = ((src_y + y_offset) * width + src_x) * 2
-            #src_end = src_start + copy_w * 2
-            dst_start = ((dst_y + y_offset) * self.w + dst_x) * 2
+            src_start = ((src_y + y_offset) * width + src_x)
+            dst_start = ((dst_y + y_offset) * self.w + dst_x)
             
-            #self.buf[dst_start:dst_start + copy_w * 2] = buffer[src_start:src_end]
+            blit_line(self.buf, dst_start, buffer, src_start, copy_w)
 
-            blit_line(self.buf, dst_start, buffer, src_start, copy_w * 2)
+    def draw_buffer_skip_color(self, buffer, x, y, width, height, color):
+        """绘制外部缓冲区（位图）"""
+        bitmap_rect = Rect(x, y, width, height)
+        draw_rect = bitmap_rect.intersect(self.clip)
+        if not draw_rect:
+            return
+        
+        src_x = draw_rect.x - x
+        src_y = draw_rect.y - y
+        copy_w = draw_rect.w
+        copy_h = draw_rect.h
+        
+        dst_x = draw_rect.x - self.clip.x
+        dst_y = draw_rect.y - self.clip.y
+                
+        for y_offset in range(copy_h):
+            src_start = ((src_y + y_offset) * width + src_x)
+            dst_start = ((dst_y + y_offset) * self.w + dst_x)
+            
+            blit_line_skip_color(self.buf, dst_start, buffer, src_start, copy_w, color)
 
     def draw_glyph(self, font_module, ch, x, y, color):
         glyph_data, glyph_height, glyph_width = font_module.get_ch(ch)
