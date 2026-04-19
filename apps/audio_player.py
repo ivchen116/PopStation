@@ -1,9 +1,9 @@
 import uasyncio as asyncio
-import os
 import random
 from machine import Pin, I2S
 from utils.queue import EventQueue
 import board_config as hw
+from config import config
 
 # ------------------ I2S 引脚配置 ------------------
 SCK_PIN = hw.AUDIO_I2S_SCK   # BCLK
@@ -16,14 +16,36 @@ SHUTDOWN = hw.AUDIO_I2S_SHUTDOWN
 # SD_PIN  = 15   # DIN
 # SHUTDOWN = 7
 
-global_audio_volume = 128 # 1~256
+# 0~10 → 0~256（指数曲线 gamma≈2.0）
+VOLUME_TABLE = [
+    0,    # 0
+    3,    # 1
+    10,   # 2
+    23,   # 3
+    41,   # 4
+    64,   # 5
+    92,   # 6
+    125,  # 7
+    164,  # 8
+    207,  # 9
+    256   # 10
+]
 
-def set_global_audio_volume(volume):
-    global global_audio_volume
-    global_audio_volume = volume
+def volume_user_to_hw(volume):
+    volume = max(0, min(10, volume))
+    return VOLUME_TABLE[volume]
 
-def get_global_audio_volume():
-    return global_audio_volume
+def volume_hw_to_user(hw):
+    closest = 0
+    min_diff = 999
+
+    for i, v in enumerate(VOLUME_TABLE):
+        diff = abs(v - hw)
+        if diff < min_diff:
+            min_diff = diff
+            closest = i
+
+    return closest
 
 @micropython.viper
 def adjust_volume_viper(buf: ptr8, length: int, volume: int):
@@ -245,8 +267,9 @@ class AudioPlayer:
                     if bits == 16 and n > 0:
                         fade_in_viper(self._buf, n)
 
-                    if global_audio_volume != 256:
-                        adjust_volume_viper(self._buf, n, global_audio_volume)
+                    audio_volume = config.get('volume')
+                    if audio_volume != 10:
+                        adjust_volume_viper(self._buf, n, volume_user_to_hw(audio_volume))
                     
                     await self.swriter.awrite(memoryview(self._buf)[:n])
 
@@ -262,10 +285,12 @@ class AudioPlayer:
                         if not n:
                             break
 
-                        if global_audio_volume != 256:
-                            adjust_volume_viper(self._buf, n, global_audio_volume)
+                        audio_volume = config.get('volume')
+                        if audio_volume != 10:
+                            adjust_volume_viper(self._buf, n, volume_user_to_hw(audio_volume))
 
                         await self.swriter.awrite(memoryview(self._buf)[:n])
+                        await asyncio.sleep_ms(0)
 
                 if finish:
                     break

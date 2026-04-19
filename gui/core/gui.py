@@ -188,7 +188,7 @@ class Screen:
             self.add(child)
 
     def invalid_rect(self, r):
-        print(f'Invalid rect:{r.x},{r.y},{r.w},{r.h}')
+        #print(f'Invalid rect:{r.x},{r.y},{r.w},{r.h}')
         """添加脏区域，自动去重及溢出保护"""
         # 确保区域在屏幕范围内
         r = r.intersect(Rect(0, 0, self.w, self.h))

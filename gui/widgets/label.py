@@ -65,15 +65,13 @@ class Label(Widget):
         self._update_offset()
 
         # 标记新区域为脏
-        print(f"set_text:{new_text}")
-        print(f"self.screen:{self.screen}")
         if self.screen:
             if old_len < self.text_w:
                 self.screen.invalid_rect(self._text_rect())
-                print(f"invalid new rect:{self._text_rect()}")
+                #print(f"invalid new rect:{self._text_rect()}")
             else:
                 self.screen.invalid_rect(old_rect)
-                print(f"invalid old rect:{old_rect}")
+                #print(f"invalid old rect:{old_rect}")
 
     def set_align(self, align, valign):
         self.align = align

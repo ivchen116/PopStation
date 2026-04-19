@@ -65,7 +65,10 @@ class AppManager:
         self._running = False
 
     # ---------- App 管理 ----------
-    def launch(self, app):
+    def launch(self, app, *args, **kwargs):
+        if hasattr(app, "on_launch"):
+            app.on_launch(*args, **kwargs)
+        
         if app in self.app_stack:
             self.app_stack.remove(app)
         self.app_stack.append(app)
@@ -240,7 +243,7 @@ class AppManager:
 # ---------------------------
 # 兼容旧接口
 # ---------------------------
-def launch(app): AppManager.instance().launch(app)
+def launch(app, *args, **kwargs): AppManager.instance().launch(app, *args, **kwargs)
 def kill(app): AppManager.instance().kill(app)
 def exit_app(): AppManager.instance().exit_top()
 def send_user_event(receiver, evt): AppManager.instance().send_user_event(receiver, evt)

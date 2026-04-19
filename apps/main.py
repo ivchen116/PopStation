@@ -15,7 +15,8 @@ from gui.widgets.progressbar import ProgressBar
 from gui.widgets.shape import Rectangle, Line
 from gui.widgets.image import ImageWidget
 from gui.core.colors import *
-from gui.fonts import font10, font14, arial_50, icon_font24, arial35, freesans20
+from gui.fonts import font10, arial_50, icon_font16, icon_font24, arial35, freesans20, icon_font36
+from config import config
 
 
 class GameMainApp(PopApp):
@@ -50,91 +51,21 @@ class GameMainApp(PopApp):
     def render(self):
         self.screen.show()
 
-
-class TableTennisScoreboard:
-    def __init__(self, player1="Player1", player2="Player2", win_score=11, win_margin=2):
-        self.win_score = win_score
-        self.win_margin = win_margin
-        self.current_game = 1
-        self.player1_name = player1
-        self.player2_name = player2
-        self.player1_score = 0
-        self.player2_score = 0
-        self.games_player1 = 0
-        self.games_player2 = 0
-        self.game_ended = False          # 新增：当前局是否已结束（分数冻结）
-
-    def reset_game(self):
-        """重置当前局分数（不改变局分），并清除结束标志"""
-        self.player1_score = 0
-        self.player2_score = 0
-        self.game_ended = False
-
-    def start_new_game(self):
-        """开始新的一局（同 reset_game，用于外部调用）"""
-        if self.game_ended:
-            if self.player1_score > self.player2_score:
-                self.games_player1 += 1
-            else:
-                self.games_player2 += 1 
-            self.current_game += 1
-        self.reset_game()
-
-    def score_point(self, player):
-        if self.game_ended:
-            return False, self.player1_score, self.player2_score
-
-        if player == 1:
-            self.player1_score += 1
-        elif player == 2:
-            self.player2_score += 1
-        else:
-            print("无效的玩家，请输入 1 或 2")
-            return False, self.player1_score, self.player2_score
-
-        # 检查是否一局结束
-        if self.is_game_won():
-            self.end_game()
-            return True, self.player1_score, self.player2_score   # 返回 True 表示一局结束，分数为结束时的比分
-        return False, self.player1_score, self.player2_score
-
-    def is_game_won(self):
-        if (self.player1_score >= self.win_score and
-            self.player1_score - self.player2_score >= self.win_margin):
-            return True
-        if (self.player2_score >= self.win_score and
-            self.player2_score - self.player1_score >= self.win_margin):
-            return True
-        return False
-
-    def end_game(self):
-        self.game_ended = True          # 标记当前局已结束，分数冻结
-
-    def get_score(self):
-        return self.player1_score, self.player2_score
-
-    def get_game_status(self):
-        return self.current_game, self.games_player1, self.games_player2
-
-    def start_new_match(self):
-        """开始新比赛：重置所有数据"""
-        self.current_game = 1
-        self.games_player1 = 0
-        self.games_player2 = 0
-        self.reset_game()               # 重置分数并清除结束标志
-
 class GamePinPong(PopApp):
     def __init__(self):
         super().__init__()
 
         # load from config
-        p1_name = "Qiang"
-        p2_name = "Ciya"
-        p1_color = GREEN
-        p2_color = BLUE
+        players = config.get('players')
+        p1_name = players[0] if len(players) > 0 else "Player1"
+        p2_name = players[1] if len(players) > 1 else "Player2"
+        ball_bgcolors = config.get('ball_bgcolors')
+        p1_color = ball_bgcolors[0] if len(ball_bgcolors) > 0 else GREEN
+        p2_color = ball_bgcolors[1] if len(ball_bgcolors) > 1 else BLUE
 
         dprint(DEBUG_INFO, "GamePinPong init")
-        self.scoreboard = TableTennisScoreboard(player1=p1_name, player2=p2_name)
+        from score_board import Scoreboard, TableTennisRule
+        self.scoreboard = Scoreboard(TableTennisRule())
         self.screen = Screen(bgcolor=GRAY)
         screen_width = self.screen.w
         screen_height = self.screen.h
@@ -155,25 +86,36 @@ class GamePinPong(PopApp):
 
         # 左侧分数板
         part1 = Rectangle(0, 0, screen_width//2, mainpart_h, p1_color)
+        self.p1_server = Label(10, 19, icon_font16.PINGPONG, icon_font16, WHITE)
+        self.p1_server.visible = False
         self.p1_win_set = Label(screen_width//4 - 10, 10, "0", arial35, WHITE, w=screen_width//4, h=40, align='right')
         self.score1_label = Label(0, 50, "00", arial_50, WHITE, w=screen_width//2, align="center")
         self.player1_label = Label(0, 120, p1_name, freesans20, WHITE, w=screen_width//2, align="center")
-        part1.add_list([self.p1_win_set, self.player1_label, self.score1_label])
+        self.winer1_flag = Label(2, 120, icon_font24.SPORTS_SCORE, icon_font24, RED)
+        self.winer1_flag.visible = False
+        part1.add_list([self.p1_server, self.p1_win_set, self.player1_label, self.score1_label, self.winer1_flag])
 
         # 右侧分数板
         part2 = Rectangle(screen_width//2, 0, screen_width//2, mainpart_h, p2_color)
+        self.p2_server = Label(screen_width//2 - icon_font16.max_width() - 10, 19, icon_font16.PINGPONG, icon_font16, WHITE)
+        self.p2_server.visible = False
         self.p2_win_set = Label(10, 10, "0", arial35, WHITE, w=screen_width//4, align="left")
         self.score2_label = Label(0, 50, "00", arial_50, WHITE, w=screen_width//2, align="center")
         self.player2_label = Label(0, 120, p2_name, freesans20, WHITE, w=screen_width//2, align="center")
-        part2.add_list([self.p2_win_set, self.player2_label, self.score2_label])
+        self.winer2_flag = Label(2, 120, icon_font24.SPORTS_SCORE, icon_font24, RED)
+        self.winer2_flag.visible = False
+        part2.add_list([self.p2_server, self.p2_win_set, self.player2_label, self.score2_label, self.winer2_flag])
 
         mainpart.add_list([part1, part2])
 
-        # 状态标签
-        self.prompt_label = Label(0, 80, "Press ENTER to start", font10,
-                                  WHITE, bgcolor=YELLOW,
+        # 状态标签/结算界面
+        self.prompt_label = Label(0, 120, icon_font36.NOT_STARTED, icon_font36, RED,
                                   w=screen_width, h=80,
                                   align="center", valign="middle")
+        # self.prompt_label = Label(0, 80, "Press ENTER to start", font10,
+        #                           WHITE, bgcolor=YELLOW,
+        #                           w=screen_width, h=80,
+        #                           align="center", valign="middle")
         self.prompt_label.visible = False
 
         # 历史计分板
@@ -207,7 +149,27 @@ class GamePinPong(PopApp):
 
     def update_score_display(self):
         """根据计分板更新所有显示标签"""
+        server = self.scoreboard.get_server()
+        if server == 1:
+            self.p1_server.set_visible(True)
+            self.p2_server.set_visible(False)
+        else:
+            self.p1_server.set_visible(False)
+            self.p2_server.set_visible(True)
+
+        end_status = self.scoreboard.get_end_status()
         s1, s2 = self.scoreboard.get_score()
+        if end_status:
+            #self.prompt_label.set_visible(True)
+            if s1 > s2:
+                self.winer1_flag.set_visible(True)
+            else:
+                self.winer2_flag.set_visible(True)
+        else:
+            #self.prompt_label.set_visible(False)
+            self.winer1_flag.set_visible(False)
+            self.winer2_flag.set_visible(False)
+
         self.score1_label.set_text(f"{s1:02d}")
         self.score2_label.set_text(f"{s2:02d}")
 
@@ -239,11 +201,7 @@ class GamePinPong(PopApp):
     def set_game_active(self, active):
         """设置游戏是否允许加分"""
         self.waiting_for_next_set = not active
-        self.prompt_label.set_visible(not active)
-        if active:
-            self.prompt_label.set_text("")
-        else:
-            self.prompt_label.set_text("Press ENTER to start")
+        #self.prompt_label.set_visible(not active)
 
     def start_next_set(self):
         """开始新的一局（重置当前局分数）"""
@@ -328,14 +286,15 @@ class GamePinPong(PopApp):
                 score_change = True
 
         if score_change:
-            # play audio
-            audio_files = res.build_score_files(s1, s2)
-            if new_set:
-                audio_files.append(res.SET_FINISH)
-                _set_number, player1_sets_won, player2_sets_won = self.scoreboard.get_game_status()
-                audio_files.extend(res.build_score_files(player1_sets_won, player2_sets_won))
-            audio_files = ['res/wav/' + filename for filename in audio_files]
-            get_audio().play_files(audio_files)
+            if config.get('tts_enable'):
+                # play tts
+                audio_files = res.build_score_files(s1, s2)
+                if new_set:
+                    audio_files.append(res.SET_FINISH)
+                    #_set_number, player1_sets_won, player2_sets_won = self.scoreboard.get_game_status()
+                    #audio_files.extend(res.build_score_files(player1_sets_won, player2_sets_won))
+                audio_files = ['res/wav/' + filename for filename in audio_files]
+                get_audio().play_files(audio_files)
 
             # 如果一局结束，停用游戏，等待下一局
             if new_set:
