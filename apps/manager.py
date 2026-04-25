@@ -207,6 +207,10 @@ class AppManager:
                         print("[AppManager] on_exit error:", e)
             self.remove_pending.clear()
 
+            # 所有app退出
+            if not self.app_stack:
+                break
+
             # 切换后 app 渲染
             next_app = self.app_stack[-1]
             if top_app != next_app:
