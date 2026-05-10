@@ -239,7 +239,7 @@ class ScoreGameApp(PopApp):
                 if new_set:
                     audio_files.append(res.SET_FINISH)
                 audio_files = ["res/wav/" + filename for filename in audio_files]
-                get_audio().play_files(audio_files)
+                get_audio().play_files(audio_files, emerge = True)
 
             if new_set:
                 self.set_game_active(False)

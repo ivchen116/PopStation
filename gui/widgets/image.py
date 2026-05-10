@@ -29,6 +29,39 @@ class ImageWidget(Widget):
         if self.type == IMAGE_TYPE_PNG and bgcolor is not None:
             self.bgcolor = bgcolor
 
+    def set_image(self, filepath, cache=None, bgcolor=None):
+        """
+        Update image source without replacing the widget instance.
+        This avoids churn in the widget tree and reduces heap fragmentation.
+        """
+        if filepath == self.filepath and (cache is None or cache == self.cache):
+            return
+
+        old_rect = self.global_rect() if self.screen else None
+
+        self.filepath = filepath
+        if cache is not None:
+            self.cache = cache
+
+        # Drop previous image bytes; new image may have different size/type.
+        self._data = None
+        self.type = IMAGE_TYPE_UNKNOWN
+        self.data_offset = 0
+        self.png_alpha_color = 0
+
+        self._load_header()
+
+        if self.cache and self.type != IMAGE_TYPE_UNKNOWN:
+            self._ensure_data_loaded()
+
+        if self.type == IMAGE_TYPE_PNG and bgcolor is not None:
+            self.bgcolor = bgcolor
+
+        # Invalidate both old and new regions to avoid stale pixels.
+        if old_rect is not None:
+            self.screen.invalid_rect(old_rect)
+        self.invalidate()
+
     def _load_header(self):
         try:
             with open(self.filepath, "rb") as f:

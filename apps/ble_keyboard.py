@@ -21,7 +21,7 @@ TARGET_NAME = "NSKJ-D2"
 _callback = None # callback(report_id, data)
 
 async def find_hid_device(device_name):
-    dprint(DEBUG_INFO, "Scanning for HID device...")
+    dprint(DEBUG_DBG, "Scanning for HID device...")
     async with aioble.scan(duration_ms=10000, interval_us=30000, window_us=30000) as scanner:
         async for result in scanner:
             name = result.name() or "?"
@@ -142,7 +142,7 @@ async def loop_task():
         try:
             dev = await find_hid_device(TARGET_NAME)
             if not dev:
-                dprint(DEBUG_INFO, "Retry scanning...")
+                dprint(DEBUG_DBG, "Retry scanning...")
                 await asyncio.sleep(2)
                 continue
 

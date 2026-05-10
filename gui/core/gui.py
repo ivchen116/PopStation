@@ -302,21 +302,18 @@ class Screen:
             # 0. 填充背景色(不使用root的file_rect，减少一次裁剪渲染)
             buf = draw_ctx.buf
             draw_ctx.fill(self.bgcolor)
-            end_time = time.ticks_ms()
-            print(f'fill cost:{end_time - start_time}ms')
+            fill_cost = time.ticks_ms() - start_time
 
             start_time = time.ticks_ms()
             # 1. 绘制子控件
             self.root.draw(draw_ctx)
-            end_time = time.ticks_ms()
-            print(f'draw cost:{end_time - start_time}ms')
+            draw_time = time.ticks_ms() - start_time
 
             # 2. 显示到屏幕(阻塞)
             start_time = time.ticks_ms()
             self.display.blit_buffer(dirty_rect, buf)
-            end_time = time.ticks_ms()
-            print(f'blit_buffer cost:{end_time - start_time}ms')
-
+            blit_time = time.ticks_ms() - start_time
+            print(f'show cost,fill:{fill_cost}ms,draw:{draw_time}ms,blit:{blit_time }ms')
         self._dirty.clear()
 
     def draw_background(self, draw_ctx):

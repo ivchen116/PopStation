@@ -23,9 +23,15 @@ class PopApp:
         return cls._instances[cls]
 
     def __init__(self):
+        # `__init__` may be called multiple times because callers still do
+        # `SomeApp()` while using singleton-style `__new__`.
+        # Keep base init idempotent so lifecycle flags are not reset.
+        if getattr(self, "_base_inited", False):
+            return
         self.dirty = False
         self._entered = False
         self.is_background = False
+        self._base_inited = True
 
     def on_enter(self): pass
     def on_pause(self): pass
@@ -41,6 +47,12 @@ class PopApp:
 
     def cancel_timer(self, timer_id):
         AppManager.instance().cancel_timer(self, timer_id)
+
+    def min(self):
+        AppManager.instance().minimize(self)
+
+    def max(self):
+        AppManager.instance().maximize(self)
 
 # ---------------------------
 # App 管理器（核心）
@@ -66,9 +78,11 @@ class AppManager:
 
     # ---------- App 管理 ----------
     def launch(self, app, *args, **kwargs):
-        if hasattr(app, "on_launch"):
-            app.on_launch(*args, **kwargs)
-        
+        # If app is currently backgrounded, restore it to foreground.
+        if app in self.bg_apps:
+            self.bg_apps.remove(app)
+            app.is_background = False
+
         if app in self.app_stack:
             self.app_stack.remove(app)
         self.app_stack.append(app)
@@ -80,14 +94,35 @@ class AppManager:
         if self.app_stack:
             self.remove_pending.append(self.app_stack[-1])
 
-    def add_background(self, app):
+    def minimize(self, app=None):
+        # Move app from foreground stack to background list without on_exit.
+        if app is None:
+            if not self.app_stack:
+                return
+            app = self.app_stack[-1]
+
+        if app in self.app_stack:
+            # only meaningful when app is current foreground
+            if self.app_stack and self.app_stack[-1] == app:
+                try:
+                    app.on_pause()
+                except Exception as e:
+                    print("[AppManager] on_pause error:", e)
+            self.app_stack.remove(app)
+
         if app not in self.bg_apps:
             app.is_background = True
             self.bg_apps.append(app)
 
-    def remove_background(self, app):
+    def maximize(self, app):
+        # Restore background app to foreground.
         if app in self.bg_apps:
             self.bg_apps.remove(app)
+            app.is_background = False
+
+        if app in self.app_stack:
+            self.app_stack.remove(app)
+        self.app_stack.append(app)
 
     def is_active(self, app):
         return app in self.app_stack or app in self.bg_apps
@@ -132,11 +167,11 @@ class AppManager:
                 owner.on_timer(timer_id)
             except Exception as e:
                 print(f"Timer error for {key}: {e}")
-                repeat = 0 # delete if error
+                repeat = False # delete if error
             
-            if repeat != 0:  # -1 表示无限重复，>0 表示剩余次数
-                if repeat > 0:
-                    repeat -= 1
+            if repeat:
+                # if repeat > 0:
+                #     repeat -= 1
                 
                 # 重新调度
                 new_expire = time.ticks_add(now, interval)
@@ -148,6 +183,10 @@ class AppManager:
     # ---------- 事件 ----------
     def send_user_event(self, receiver, evt):
         self.queue.put((AppEventType.EventUsr, receiver, evt))
+
+    def send_user_event_background(self, evt):
+        for app in list(self.bg_apps):
+            self.queue.put((AppEventType.EventUsr, app, evt))
 
     def send_input_event(self, key, status):
         self.queue.put((AppEventType.EventInput, None, (key, status)))
@@ -203,8 +242,16 @@ class AppManager:
                     self.app_stack.remove(app)
                     try:
                         app.on_exit()
+                        app._entered = False
                     except Exception as e:
                         print("[AppManager] on_exit error:", e)
+                elif app in self.bg_apps:
+                    self.bg_apps.remove(app)
+                    try:
+                        app.on_exit()
+                        app._entered = False
+                    except Exception as e:
+                        print("[AppManager] bg on_exit error:", e)
             self.remove_pending.clear()
 
             # 所有app退出
@@ -234,6 +281,13 @@ class AppManager:
         print("[AppManager] exiting...")
 
         # 退出所有 app
+        for app in list(self.bg_apps):
+            try:
+                app.on_exit()
+            except Exception as e:
+                print("[AppManager] final bg exit error:", e)
+        self.bg_apps.clear()
+
         for app in reversed(self.app_stack):
             try:
                 app.on_exit()
@@ -250,7 +304,10 @@ class AppManager:
 def launch(app, *args, **kwargs): AppManager.instance().launch(app, *args, **kwargs)
 def kill(app): AppManager.instance().kill(app)
 def exit_app(): AppManager.instance().exit_top()
+def min_app(app=None): AppManager.instance().minimize(app)
+def max_app(app): AppManager.instance().maximize(app)
 def send_user_event(receiver, evt): AppManager.instance().send_user_event(receiver, evt)
+def send_user_event_background(evt): AppManager.instance().send_user_event_background(evt)
 def send_input_event(key, status): AppManager.instance().send_input_event(key, status)
 async def run(root_app): await AppManager.instance().run(root_app)
 def stop(): AppManager.instance().stop()

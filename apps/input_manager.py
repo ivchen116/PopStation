@@ -7,7 +7,7 @@ from utils.trace import *
 
 
 def send_input_event_wrapper(key_id, key_status):
-    dprint(DEBUG_INFO, f"send_input_event: {key_id}, {key_status}")
+    dprint(DEBUG_DBG, f"send_input_event: {key_id}, {key_status}")
     send_input_event(key_id, key_status)
 
 def btn_key_to_event(key_event):
