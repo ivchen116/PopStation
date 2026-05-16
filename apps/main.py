@@ -35,25 +35,7 @@ from manager import run
 from menu_app import GameMainApp
 
 
-# async def watchdog_task():
-#     import time
-#     from machine import WDT
-#     wdt = WDT(timeout=5000)
-
-#     max_feed = 0
-#     while True:
-        
-#         delta = time.ticks_diff(time.ticks_ms(), last_tick)
-#         if delta > max_feed:
-#             print("Watchdog max feed {}ms".format(delta))
-#             max_feed = delta
-#         last_tick = time.ticks_ms()
-#         wdt.feed()
-#         await asyncio.sleep(1)
-
-
 async def main():
-    #asyncio.create_task(watchdog_task())
 
     trace.DEBUG_LEVEL = trace.DEBUG_INFO | trace.DEBUG_ERROR
     input_manager.start()

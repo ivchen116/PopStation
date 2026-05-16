@@ -44,7 +44,7 @@ def adjust_volume_viper(buf: ptr8, length: int, volume: int):
 
 
 @micropython.viper
-def fade_in_viper(buf: ptr8, length: int):
+def fade16_in_viper(buf: ptr8, length: int):
     samples = length // 2
     if samples <= 1:
         return
@@ -141,20 +141,34 @@ class PlaybackHandle:
         self._service.stop_handle(self)
 
 
+async def _read_exact(source, mv, quit_cond=None, timeout=None):
+    total_read = 0
+    length = len(mv)
+    start = time.ticks_ms() if timeout else None
+
+    while total_read < length:
+        if quit_cond and quit_cond():
+            break
+        if timeout:
+            if time.ticks_diff(time.ticks_ms(), start) > timeout * 1000:
+                raise asyncio.TimeoutError(f"read_exact timeout after {total_read}/{length} bytes")
+
+        n = await source.readinto(mv[total_read:])
+        if n == 0:  # EOF
+            break
+        total_read += n
+    return total_read
+
 class AudioService:
     IBUF_SIZE = 40000
     BUF_SIZE = 8192
     FADE_MS = 60
-    # Tune for smoother playback under UI/input load.
-    YIELD_EVERY_CHUNKS = 4
-    CHECK_QUEUE_EVERY_CHUNKS = 4
 
     def __init__(self):
         self.queue = EventQueue()
         self.current_handle = None
         self.wait_resume = None
         self._buf = bytearray(self.BUF_SIZE)
-        self._buf2 = bytearray(self.BUF_SIZE)
 
         self.sample_rate = 16000
         self.channels = 2
@@ -363,13 +377,17 @@ class AudioService:
             await source.open()
             # Apply resume offset only for the current source, not for every track in a list.
             resume_offset = handle.start_offset_bytes if (handle.start_offset_bytes and handle.start_offset_bytes > 0) else 0
+
             header = bytearray(44)
-            n = 0
-            while n < 44:
-                r = await source.readinto(memoryview(header)[n:])
-                if not r:
-                    raise ValueError("wav header missing")
-                n += r
+            total = await _read_exact(source, memoryview(header),
+                                      lambda: handle.state == PlaybackHandle.STOPPED)
+            if handle.state == PlaybackHandle.STOPPED:
+                return True
+            if not self.queue.empty():
+                return False
+
+            if total < 44:
+                raise ValueError("Incomplete WAV header")
 
             ch, rate, bits, _ = parse_wav_header_bytes(header)
             if bits != 16:
@@ -404,94 +422,55 @@ class AudioService:
                     ibuf=self.IBUF_SIZE,
                 )
 
+            # fade in for 16-bit audio
             frame_bytes = (bits // 8) * ch
             fade_frames = int(rate * self.FADE_MS / 1000)
             fade_bytes = fade_frames * frame_bytes
 
-            cur_mv = memoryview(self._buf)
-            next_mv = memoryview(self._buf2)
-            carry = bytearray(frame_bytes)
-            carry_len = 0
-
-            # Prime first chunk so we can apply fade-in.
-            rn_cur = await source.readinto(cur_mv)
-            if not rn_cur:
+            n = await _read_exact(source, memoryview(self._buf)[:fade_bytes],
+                                    lambda: handle.state == PlaybackHandle.STOPPED or not self.queue.empty())
+            if handle.state == PlaybackHandle.STOPPED:
                 return True
+            if not self.queue.empty():
+                return False
 
-            # Prepend carry from previous chunk if any, then align to frame boundary.
-            if carry_len:
-                if carry_len + rn_cur > len(cur_mv):
-                    rn_cur = len(cur_mv) - carry_len
-                cur_mv[carry_len:carry_len + rn_cur] = cur_mv[:rn_cur]
-                cur_mv[:carry_len] = carry[:carry_len]
-                rn_cur += carry_len
-                carry_len = 0
+            if n > 0:
+                if bits == 16:
+                    fade16_in_viper(self._buf, n)
+                else:
+                    pass # TODO support
 
-            aligned_cur = (rn_cur // frame_bytes) * frame_bytes
-            rem = rn_cur - aligned_cur
-            if rem:
-                carry[:rem] = cur_mv[aligned_cur:rn_cur]
-                carry_len = rem
+                audio_volume = config.get('volume')
+                if audio_volume != 10:
+                    adjust_volume_viper(self._buf, n, volume_user_to_hw(audio_volume))
 
-            # Fade-in on first audio chunk.
-            if bits == 16:
-                n_fade_in = aligned_cur if aligned_cur < fade_bytes else fade_bytes
-                if n_fade_in > 0:
-                    fade_in_viper(cur_mv, n_fade_in)
+                await self.swriter.awrite(memoryview(self._buf)[:n])
+                handle.bytes_played += n
 
-            first_chunk = True
-            chunk_idx = 0
             while True:
-                # Keep STOP responsive while reducing over-frequent queue preemption.
+                start = time.ticks_ms()
+                n = await _read_exact(source, memoryview(self._buf),
+                                      lambda: handle.state == PlaybackHandle.STOPPED or not self.queue.empty())
                 if handle.state == PlaybackHandle.STOPPED:
-                    finish = True
-                    break
+                    return True
                 if not self.queue.empty():
                     return False
 
-                rn_next = await source.readinto(next_mv)
-                if carry_len and rn_next > 0:
-                    if carry_len + rn_next > len(next_mv):
-                        rn_next = len(next_mv) - carry_len
-                    next_mv[carry_len:carry_len + rn_next] = next_mv[:rn_next]
-                    next_mv[:carry_len] = carry[:carry_len]
-                    rn_next += carry_len
-                    carry_len = 0
-
-                aligned_next = (rn_next // frame_bytes) * frame_bytes
-                rem = rn_next - aligned_next
-                if rem:
-                    carry[:rem] = next_mv[aligned_next:rn_next]
-                    carry_len = rem
-
-                audio_volume = config.get("volume")
-                if audio_volume != 10:
-                    adjust_volume_viper(cur_mv, aligned_cur, volume_user_to_hw(audio_volume))
-
-                # If next is EOF, current is last chunk: apply fade-out.
-                if rn_next == 0 and bits == 16:
-                    n_fade_out = aligned_cur if aligned_cur < fade_bytes else fade_bytes
-                    if n_fade_out > 0:
-                        # Fade-out on the tail of current chunk.
-                        tail_start = aligned_cur - n_fade_out
-                        fade_out_tail_viper(cur_mv, tail_start, n_fade_out)
-
-                if aligned_cur > 0:
-                    self.swriter.out_buf = cur_mv[:aligned_cur]
-                    await self.swriter.drain()
-                    self._last_write_tick = time.ticks_ms()
-                    handle.bytes_played += aligned_cur
-
-                if rn_next == 0:
+                #print(f"[DEBUG] swriter read: {n} bytes cost { time.ticks_ms() - start}")
+                if not n:
                     return True
 
-                # Swap buffers.
-                cur_mv, next_mv = next_mv, cur_mv
-                rn_cur = rn_next
-                aligned_cur = aligned_next
-                chunk_idx += 1
-                if first_chunk:
-                    first_chunk = False
+                audio_volume = config.get('volume')
+                if audio_volume != 10:
+                    adjust_volume_viper(self._buf, n, volume_user_to_hw(audio_volume))
+
+                self.swriter.out_buf = memoryview(self._buf)[:n]
+                start = time.ticks_ms()
+                await self.swriter.drain()
+                #print(f"[DEBUG] swriter after drain: {n} bytes cost { time.ticks_ms() - start}")
+                self._last_write_tick = time.ticks_ms()
+                handle.bytes_played += n
+
         except Exception as e:
             print("[AudioService] play error:", e)
             return True

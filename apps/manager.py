@@ -184,9 +184,6 @@ class AppManager:
     def send_user_event(self, receiver, evt):
         self.queue.put((AppEventType.EventUsr, receiver, evt))
 
-    def send_user_event_background(self, evt):
-        for app in list(self.bg_apps):
-            self.queue.put((AppEventType.EventUsr, app, evt))
 
     def send_input_event(self, key, status):
         self.queue.put((AppEventType.EventInput, None, (key, status)))
@@ -307,7 +304,6 @@ def exit_app(): AppManager.instance().exit_top()
 def min_app(app=None): AppManager.instance().minimize(app)
 def max_app(app): AppManager.instance().maximize(app)
 def send_user_event(receiver, evt): AppManager.instance().send_user_event(receiver, evt)
-def send_user_event_background(evt): AppManager.instance().send_user_event_background(evt)
 def send_input_event(key, status): AppManager.instance().send_input_event(key, status)
 async def run(root_app): await AppManager.instance().run(root_app)
 def stop(): AppManager.instance().stop()

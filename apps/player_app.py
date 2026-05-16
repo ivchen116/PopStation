@@ -5,8 +5,9 @@ from app_context import get_audio
 from config import config
 from gui.core.colors import GRAY, WHITE, YELLOW
 from gui.core.gui import Screen
-from gui.fonts import arial35, freesans20
+from gui.fonts import icon_font24, freesans20
 from gui.widgets.label import Label
+from gui.widgets.shape import Rectangle
 from gui.widgets.progressbar import ProgressBar
 from input_keys import (
     BLE_KEY_ENTER,
@@ -96,7 +97,7 @@ class PlayerApp(PopApp):
     MODE_SINGLE = 0
     MODE_ONE = 1
     MODE_LIST = 2
-    MODE_TEXT = ("Single", "One", "List")
+    MODE_CHAR = ("S", "1", "L")
 
     def __init__(self):
         super().__init__()
@@ -120,21 +121,36 @@ class PlayerApp(PopApp):
             self.play_mode = self.MODE_ONE if bool(saved_mode) else self.MODE_SINGLE
         self._enter_down_ms = None
 
-        self.title_label = Label(0, 16, "WAV Player", freesans20, WHITE, w=screen_width, align="center")
+        toolbar_h = 40
+        toolbar = Rectangle(0, 0, screen_width, toolbar_h, GRAY)
+        menu_icon = Label(20, 10, icon_font24.MENU, icon_font24, WHITE)
+        prev_icon = Label(80, 10, icon_font24.CIRCLE_LEFT, icon_font24, WHITE)
+        self._play_icon_play = icon_font24.PLAY_CIRCLE
+        self._play_icon_stop = icon_font24.STOP_CIRCLE
+        self.play_icon = Label(140, 10, self._play_icon_play, icon_font24, WHITE)
+        next_icon = Label(200, 10, icon_font24.CIRCLE_RIGHT, icon_font24, WHITE)
+        toolbar.add_list([menu_icon, prev_icon, self.play_icon, next_icon])
+
         self.status_label = Label(
             0, 44, "", freesans20, YELLOW, w=screen_width, h=28, align="center", valign="middle"
         )
-        self.mode_label = Label(10, 72, "", freesans20, WHITE, w=screen_width - 20, align="left")
-        self.progress_bar = ProgressBar(10, 204, screen_width - 20, 12, border_color=WHITE, fill_color=YELLOW, empty_color=WHITE, value=0)
+        progress_x = 10
+        progress_y = 204
+        mode_box_w = 20
+        mode_gap = 4
+        progress_w = screen_width - progress_x - 10 - mode_box_w - mode_gap
+        self.progress_bar = ProgressBar(progress_x, progress_y, progress_w, 12, border_color=WHITE, fill_color=YELLOW, empty_color=WHITE, value=0)
+        self.mode_marker = Label(progress_x + progress_w + mode_gap, progress_y - 2, "", freesans20, GRAY,
+                                 w=mode_box_w, h=20, align="center", valign="middle", bgcolor=WHITE)
 
         # Simple list view (5 lines)
         self.item_labels = []
-        y0 = 96
+        y0 = 60
         for i in range(5):
-            lbl = Label(10, y0 + i * 28, "", freesans20, WHITE, w=screen_width - 20)
+            lbl = Label(10, y0 + i * 24, "", freesans20, WHITE, w=screen_width - 20)
             self.item_labels.append(lbl)
 
-        self.screen.add_list([self.title_label, self.status_label, self.mode_label, self.progress_bar] + self.item_labels)
+        self.screen.add_list([toolbar, self.status_label, self.progress_bar, self.mode_marker] + self.item_labels)
         self._player_inited = True
 
     def _refresh(self):
@@ -143,7 +159,8 @@ class PlayerApp(PopApp):
         else:
             # Keep status line compact; playback state is shown by list item color.
             self.status_label.set_text("")
-        self.mode_label.set_text("Mode: " + self.MODE_TEXT[self.play_mode])
+        self.mode_marker.set_text(self.MODE_CHAR[self.play_mode])
+        self._update_play_icon()
 
         start = max(0, self.selected_index - 2)
         end = min(len(self.files), start + 5)
@@ -177,6 +194,7 @@ class PlayerApp(PopApp):
             self._playing_file = None
             self.cancel_timer(self.TIMER_PROGRESS)
             self._update_progress()
+            self._update_play_icon()
             return
 
         try:
@@ -193,14 +211,20 @@ class PlayerApp(PopApp):
             self.playing = False
             self.cancel_timer(self.TIMER_PROGRESS)
             self._update_progress()
+            self._update_play_icon()
             return
 
         # PLAYING/PAUSED are both treated as active session for UI continuity.
         self.playing = True
         if self._playing_file and self.files and self._playing_file in self.files:
             self.selected_index = self.files.index(self._playing_file)
-        self.set_timer(self.TIMER_PROGRESS, 200, repeat=True)
+        self.set_timer(self.TIMER_PROGRESS, 500, repeat=True)
         self._update_progress()
+        self._update_play_icon()
+
+    def _update_play_icon(self):
+        icon = self._play_icon_stop if self.playing else self._play_icon_play
+        self.play_icon.set_text(icon)
 
     def _update_progress(self):
         if not self.playing or self._handle is None or not self.files:
@@ -256,6 +280,7 @@ class PlayerApp(PopApp):
         self.playing = False
         self.cancel_timer(self.TIMER_PROGRESS)
         self._update_progress()
+        self._update_play_icon()
 
     def _play_selected(self):
         if not self.files:
@@ -272,8 +297,9 @@ class PlayerApp(PopApp):
         self._handle = audio.play_file(cur_file, offset_bytes=offset)
         self._playing_file = cur_file
         self.playing = True
-        self.set_timer(self.TIMER_PROGRESS, 200, repeat=True)
+        self.set_timer(self.TIMER_PROGRESS, 500, repeat=True)
         self._update_progress()
+        self._update_play_icon()
         self._refresh()
 
     def _play_index_from_head(self, idx):
@@ -289,8 +315,9 @@ class PlayerApp(PopApp):
         self._handle = audio.play_file(cur_file, offset_bytes=0)
         self._playing_file = cur_file
         self.playing = True
-        self.set_timer(self.TIMER_PROGRESS, 200, repeat=True)
+        self.set_timer(self.TIMER_PROGRESS, 500, repeat=True)
         self._update_progress()
+        self._update_play_icon()
         self._refresh()
 
     def _toggle_loop_mode(self):
@@ -412,6 +439,7 @@ class PlayerApp(PopApp):
                         self.playing = False
                         self.cancel_timer(self.TIMER_PROGRESS)
                     self._update_progress()
+                    self._update_play_icon()
                     self._refresh()
             except Exception:
                 pass
